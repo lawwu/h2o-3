@@ -69,7 +69,7 @@ public class CategoricalWrappedVec extends WrappedVec {
    */
   void computeMap( String[] from, String[] to, boolean fromIsBad ) {
     // Identity? Build the cheapo non-map
-    if( from==to || Arrays.equals(from,to) ) {
+    if( from==to || Arrays.equals(from,to) ) {  // have same domain and categorical levels, no work needed
       _map = ArrayUtils.seq(0,to.length);
       setDomain(to);
       return;

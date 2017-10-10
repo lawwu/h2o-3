@@ -2732,7 +2732,7 @@ def compare_frames(frame1, frame2, numElements, tol_time=0, tol_numeric=0, stric
     na_frame2 = frame2.isna().sum().sum(axis=1)[:,0]
 
     if compare_NA:      # check number of missing values
-        assert na_frame1 == na_frame2, "failed numbers of NA check!  Frame 1 NA number: {0}, frame 2 " \
+        assert na_frame1.flatten() == na_frame2.flatten(), "failed numbers of NA check!  Frame 1 NA number: {0}, frame 2 " \
                                    "NA number: {1}".format(na_frame1, na_frame2)
 
     # check column types are the same before proceeding to check each row content.

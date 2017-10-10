@@ -1,16 +1,18 @@
 package water.rapids.ast.prims.mungers;
 
-import water.*;
+import water.H2O;
+import water.Iced;
+import water.Key;
+import water.MRTask;
 import water.fvec.*;
 import water.parser.BufferedString;
 import water.rapids.Env;
 import water.rapids.Merge;
-import water.rapids.Val;
-import water.rapids.ast.AstRoot;
-import water.rapids.vals.ValFrame;
 import water.rapids.ast.AstPrimitive;
+import water.rapids.ast.AstRoot;
 import water.rapids.ast.params.AstNum;
 import water.rapids.ast.params.AstNumList;
+import water.rapids.vals.ValFrame;
 import water.util.IcedHashMap;
 
 import java.util.ArrayList;
@@ -105,8 +107,8 @@ public class AstMerge extends AstPrimitive {
               " found types " + lv.get_type_str() + " and " + rv.get_type_str());
         if (lv.isString())
           throw new IllegalArgumentException("Cannot merge Strings; flip toCategoricalVec first");
-        if (lv.isNumeric() && !lv.isInt())
-          throw new IllegalArgumentException("Equality tests on doubles rarely work, please round to integers only before merging");
+/*        if (lv.isNumeric() && !lv.isInt())
+          throw new IllegalArgumentException("Equality tests on doubles rarely work, please round to integers only before merging");*/
     }
 
     // GC now to sync nodes and get them to use young gen for the working memory. This helps get stable
@@ -119,22 +121,48 @@ public class AstMerge extends AstPrimitive {
         System.gc();
       }
     }.doAllNodes();
-
+    method = "radix"; // method set to radix only as hash method does not work if rite frame contains duplicate key values
     if (method.equals("radix")) {
       // Build categorical mappings, to rapidly convert categoricals from the left to the right
       // With the sortingMerge approach there is no variance here: always map left to right
-      if (allRite)
-        throw new IllegalArgumentException("all.y=TRUE not yet implemented for method='radix'");
+      if (allLeft && allRite)
+        throw new IllegalArgumentException("all.x=TRUE and all.y=TRUE is not supported.  Choose one only.");
+/*      if (allRite)
+        throw new IllegalArgumentException("all.y=TRUE not yet implemented for method='radix'");*/
+      boolean onlyLeftAllOff = (allLeft && !allRite) || !allRite;
       int[][] id_maps = new int[ncols][];
-      for (int i = 0; i < ncols; i++) {
-        Vec lv = l.vec(i);
-        Vec rv = r.vec(i);
-        if (lv.isCategorical()) {
-          assert rv.isCategorical();  // if not, would have thrown above
-          id_maps[i] = CategoricalWrappedVec.computeMap(lv.domain(), rv.domain());
+      for (int i = 0; i < ncols; i++) { // flip the frame orders for allRite
+        Vec lv = onlyLeftAllOff?l.vec(i):r.vec(i);
+        Vec rv = onlyLeftAllOff?r.vec(i):l.vec(i);
+        if (onlyLeftAllOff?lv.isCategorical():rv.isCategorical()) {
+          assert onlyLeftAllOff?rv.isCategorical():lv.isCategorical();  // if not, would have thrown above
+          id_maps[i] = onlyLeftAllOff?CategoricalWrappedVec.computeMap(lv.domain(), rv.domain()):CategoricalWrappedVec.computeMap(rv.domain(), lv.domain());
         }
       }
-      return sortingMerge(l, r, allLeft, allRite, ncols, id_maps);
+
+      if (onlyLeftAllOff) {
+        return sortingMerge(l, r, allLeft, allRite, ncols, id_maps);
+      } else {
+        ValFrame tempFrame = sortingMerge(r,l,allRite,allLeft, ncols, id_maps);
+        Frame mergedFrame = tempFrame.getFrame();  // need to switch order of merged frame
+        int allColNum = mergedFrame.numCols();
+        int[] colMapping = new int[allColNum];  // index into combined frame but with correct order
+        for (int index = 0; index < ncols; index++) {
+          colMapping[index] = index;    // no change to column order in the key columns
+        }
+        int offset = r.numCols()-ncols;
+        for (int index = ncols; index < l.numCols(); index++) { // set the order for right frame
+          colMapping[index] = offset+index;        // move the left columns to the front
+        }
+        offset = l.numCols()-ncols;
+        for (int index=l.numCols(); index < allColNum; index++) {
+          colMapping[index] = index-offset;
+        }
+
+        mergedFrame.reOrder(colMapping);  // reorder the frame columns
+        return tempFrame;
+
+      }
     }
 
     // Pick the frame to replicate & hash.  If one set is "all" and the other
