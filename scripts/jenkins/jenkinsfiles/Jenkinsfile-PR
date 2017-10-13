@@ -1,0 +1,4 @@
+pipeline = load('../groovy/h2o-3-pipeline.groovy')
+pipeline {
+  
+}
