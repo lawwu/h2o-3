@@ -1,0 +1,24 @@
+def DEFAULT_NODE_LABEL = 'docker && !mr-0xc8 && !mr-0xg2'
+
+node (DEFAULT_NODE_LABEL) {
+
+  // checkout H2O-3 so we can use the scripts
+  dir ('jenkins-scripts') {
+    deleteDir()
+    retry(3) {
+      timeout(time: 1, unit: 'MINUTES') {
+        echo "Checkout H2O-3"
+        checkout scm
+      }
+    }
+  }
+
+  // archive scripts so we don't have to do additional checkouts when changing node
+  archiveArtifacts artifacts: "jenkins-scripts/scripts/jenkins/groovy/*", allowEmptyArchive: false
+
+  // load H2O-3 pipeline script and execute it
+  def h2o3Pipeline = load('jenkins-scripts/scripts/jenkins/groovy/h2o3Pipeline.groovy')
+  h2o3Pipeline {
+    mode = 'MODE_MASTER'
+  }
+}

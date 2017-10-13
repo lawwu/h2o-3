@@ -7,3 +7,5 @@ def call (String lang, String jobName, String buildID) {
     ]);
     sh "cd h2o-3 && unzip test-package-${lang}.zip && rm test-package-${lang}.zip"
 }
+
+return this

@@ -50,3 +50,5 @@ def execMake(target) {
     make -f docker/Makefile.jenkins ${target}
   """
 }
+
+return this

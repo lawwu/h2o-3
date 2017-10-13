@@ -1,7 +1,25 @@
-def call() {
-  def MODE_PR = 'pr'
-  def MODE_MASTER = 'master'
-  def MODE_NIGHTLY = 'nightly'
+def call(body) {
+  def config = [:]
+  body.resolveStrategy = Closure.DELEGATE_FIRST
+  body.delegate = config
+  body()
+
+  def cancelPreviousBuilds = load('jenkins-scripts/scripts/jenkins/groovy/cancelPreviousBuilds.groovy')
+  def getRootNodeLabel = load('jenkins-scripts/scripts/jenkins/groovy/getRootNodeLabel.groovy')
+  def withDockerEnvironment = load('jenkins-scripts/scripts/jenkins/groovy/withDockerEnvironment.groovy')
+  def buildTarget = load('jenkins-scripts/scripts/jenkins/groovy/buildTarget.groovy')
+  def defaultTestPipeline = load('jenkins-scripts/scripts/jenkins/groovy/defaultTestPipeline.groovy')
+
+  def MODE_PR_CODE = 0
+  def MODE_MASTER_CODE = 1
+  def MODE_NIGHTLY_CODE = 2
+  def MODES = [
+    [name: 'MODE_PR', code: MODE_PR_CODE],
+    [name: 'MODE_MASTER', code: MODE_MASTER_CODE],
+    [name: 'MODE_NIGHTLY', code: MODE_NIGHTLY_CODE]
+  ]
+
+  def DEFAULT_NODE_LABEL = 'docker && !mr-0xc8 && !mr-0xg2'
 
   // Job will execute PR_STAGES only if these are green.
   def SMOKE_STAGES = [
@@ -151,8 +169,6 @@ def call() {
             [
               choice(name: 'rVersion', description: 'R version used to compile H2O-3', choices: '3.4.1\n3.3.3\n3.2.5\n3.1.3\n3.0.3'),
               choice(name: 'pythonVersion', description: 'Python version used to compile H2O-3', choices: "3.5\n3.6\n3.7"),
-              string(name: 'customMakefileURL', defaultValue: '', description: 'Makefile used to build and test H2O-3. Leave empty to use docker/Makefile.jenkins from master'),
-              choice(name: 'testsSize', description:'Choose small for smoke and small tests only. Medium-large runs medium-large test as well.', choices: "${SIZE_SMALL}\n${SIZE_MEDIUM_LARGE}")
             ]
         ),
         buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '25'))
@@ -167,96 +183,101 @@ def call() {
   ]
 
   if (env.CHANGE_BRANCH != null && env.CHANGE_BRANCH != '') {
+    echo "###### Cancelling all previous builds ######"
     cancelPreviousBuilds()
   }
 
   node (getRootNodeLabel()) {
-    // node (Globals.DEFAULT_NODE_LABEL) {
-    //   withDockerEnvironment(customEnv, 4, 'HOURS') {
-    //
-    //     stage ('Checkout Sources') {
-    //       currentBuild.displayName = "${params.testsSize} #${currentBuild.id}"
-    //       checkoutH2O()
-    //       setJobDescription()
-    //     }
-    //
-    //     stage ('Build H2O-3') {
-    //       withEnv(["PYTHON_VERSION=${params.pythonVersion}", "R_VERSION=${params.rVersion}"]) {
-    //         try {
-    //           buildTarget {
-    //             target = 'build-h2o-3'
-    //             hasJUnit = false
-    //             archiveFiles = false
-    //           }
-    //           buildTarget {
-    //             target = 'test-package-py'
-    //             hasJUnit = false
-    //             archiveFiles = false
-    //           }
-    //           buildTarget {
-    //             target = 'test-package-r'
-    //             hasJUnit = false
-    //             archiveFiles = false
-    //           }
-    //           buildTarget {
-    //             target = 'test-package-js'
-    //             hasJUnit = false
-    //             archiveFiles = false
-    //           }
-    //         } finally {
-    //           archiveArtifacts """
-    //             h2o-3/docker/Makefile.jenkins,
-    //             h2o-3/h2o-py/dist/*.whl,
-    //             h2o-3/build/h2o.jar,
-    //             h2o-3/h2o-3/src/contrib/h2o_*.tar.gz,
-    //             h2o-3/h2o-assemblies/genmodel/build/libs/genmodel.jar,
-    //             h2o-3/test-package-*.zip,
-    //             **/*.log, **/out.*, **/*py.out.txt, **/java*out.txt, **/tests.txt, **/status.*
-    //           """
-    //         }
-    //       }
-    //     }
-    //   }
-    // }
-    // executeInParallel(SMOKE_STAGES, customEnv, params.customMakefileURL)
-    //
-    // def jobs = SMALL_JOBS
-    // if (params.testsSize.toLowerCase() == SIZE_MEDIUM_LARGE.toLowerCase()) {
-    //   jobs += MEDIUM_LARGE_JOBS
-    // }
-    // executeInParallel(jobs, customEnv, params.customMakefileURL)
+    node (DEFAULT_NODE_LABEL) {
+      // node change, need to get scripts
+      echo "Pulling scripts"
+      step ([$class: 'CopyArtifact',
+        projectName: env.JOB_NAME,
+        filter: "jenkins-scripts/scripts/jenkins/groovy/*",
+        selector: [$class: 'SpecificBuildSelector', buildNumber: env.BUILD_ID]
+      ]);
+
+      withDockerEnvironment(customEnv, 4, 'HOURS') {
+        stage ('Checkout') {
+          dir ('h2o-3') {
+            deleteDir()
+            checkout scm
+          }
+        }
+        stage ('Build H2O-3') {
+          withEnv(["PYTHON_VERSION=${params.pythonVersion}", "R_VERSION=${params.rVersion}"]) {
+            try {
+              buildTarget {
+                target = 'build-h2o-3'
+                hasJUnit = false
+                archiveFiles = false
+              }
+              buildTarget {
+                target = 'test-package-py'
+                hasJUnit = false
+                archiveFiles = false
+              }
+              buildTarget {
+                target = 'test-package-r'
+                hasJUnit = false
+                archiveFiles = false
+              }
+              buildTarget {
+                target = 'test-package-js'
+                hasJUnit = false
+                archiveFiles = false
+              }
+            } finally {
+              archiveArtifacts """
+                h2o-3/docker/Makefile.jenkins,
+                h2o-3/h2o-py/dist/*.whl,
+                h2o-3/build/h2o.jar,
+                h2o-3/h2o-3/src/contrib/h2o_*.tar.gz,
+                h2o-3/h2o-assemblies/genmodel/build/libs/genmodel.jar,
+                h2o-3/test-package-*.zip,
+                **/*.log, **/out.*, **/*py.out.txt, **/java*out.txt, **/tests.txt, **/status.*
+              """
+            }
+          }
+        }
+      }
+    }
+
+    executeInParallel(SMOKE_STAGES, customEnv, params.customMakefileURL, defaultTestPipeline)
+
+    def mode = MODES.find{it['name'] == config.mode}['code']
+    def jobs = PR_STAGES
+    if (mode >= MODE_MASTER_CODE) {
+      jobs += MASTER_STAGES
+    }
+    if (mode >= MODE_NIGHTLY_CODE) {
+      jobs += MASTER_STAGES
+    }
+    executeInParallel(jobs, customEnv, params.customMakefileURL, defaultTestPipeline)
   }
+
 }
 
-def executeInParallel(jobs, customEnv, customMakefileURL) {
+def executeInParallel(jobs, customEnv, customMakefileURL, defaultTestPipeline) {
+
   parallel(jobs.collectEntries { c ->
     [
       c['stageName'], {
-  //       withEnv(customEnv) {
-  //         defaultTestPipeline {
-  //           stageName = c['stageName']
-  //           target = c['target']
-  //           pythonVersion = c['pythonVersion']
-  //           rVersion = c['rVersion']
-  //           timeoutValue = c['timeoutValue']
-  //           hasJUnit = c['hasJUnit']
-  //           filesToArchive = c['filesToArchive']
-  //           lang = c['lang']
-  //         }
-  //       }
+        withEnv(customEnv) {
+          defaultTestPipeline {
+            stageName = c['stageName']
+            target = c['target']
+            pythonVersion = c['pythonVersion']
+            rVersion = c['rVersion']
+            timeoutValue = c['timeoutValue']
+            hasJUnit = c['hasJUnit']
+            filesToArchive = c['filesToArchive']
+            lang = c['lang']
+          }
+        }
       }
     ]
   })
 }
 
-def setJobDescription() {
-  // def MAX_MESSAGE_LENGTH = 30
-  // def gitSHA = sh(returnStdout: true, script: 'cd h2o-3 && git rev-parse HEAD').trim()
-  // def gitMessage = sh(returnStdout: true, script: 'cd h2o-3 && git log -1 --pretty=%B').trim()
-  // if (gitMessage.length() >= MAX_MESSAGE_LENGTH) {
-  //   gitMessage = gitMessage.substring(0, MAX_MESSAGE_LENGTH) + '...'
-  // }
-  // def gitAuthor = sh(returnStdout: true, script: 'cd h2o-3 && git log -1 --format=\'%an <%ae>\'').trim()
-  //
-  // currentBuild.description = "MSG: ${gitMessage}\nAUT: ${gitAuthor}\nSHA: ${gitSHA}"
-}
+return this

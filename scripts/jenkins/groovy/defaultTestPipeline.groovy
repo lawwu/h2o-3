@@ -1,10 +1,10 @@
-import ai.h2o3.ci.Globals
-
 def call(body) {
   def config = [:]
   body.resolveStrategy = Closure.DELEGATE_FIRST
   body.delegate = config
   body()
+
+  def DEFAULT_NODE_LABEL = 'docker && !mr-0xc8 && !mr-0xg2'
 
   if (config.pythonVersion == null) {
     config.pythonVersion = '3.5'
@@ -29,7 +29,20 @@ def call(body) {
     "GRADLE_OPTS=-Dorg.gradle.daemon=false"
   ]
 
-  node(Globals.DEFAULT_NODE_LABEL) {
+  node(DEFAULT_NODE_LABEL) {
+    echo "Pulling scripts"
+    step ([$class: 'CopyArtifact',
+      projectName: env.JOB_NAME,
+      filter: "jenkins-scripts/scripts/jenkins/groovy/*",
+      selector: [$class: 'SpecificBuildSelector', buildNumber: env.BUILD_ID]
+    ]);
+
+    def withDockerEnvironment = load('jenkins-scripts/scripts/jenkins/groovy/withDockerEnvironment.groovy')
+    def unpackTestPackage = load('jenkins-scripts/scripts/jenkins/groovy/unpackTestPackage.groovy')
+    def installPythonPackage = load('jenkins-scripts/scripts/jenkins/groovy/installPythonPackage.groovy')
+    def installRPackage = load('jenkins-scripts/scripts/jenkins/groovy/installRPackage.groovy')
+    def buildTarget = load('jenkins-scripts/scripts/jenkins/groovy/buildTarget.groovy')
+
     withDockerEnvironment(customEnv, config.timeoutValue, 'MINUTES') {
       stage(config.stageName) {
         dir ('h2o-3') {
@@ -51,3 +64,5 @@ def call(body) {
     }
   }
 }
+
+return this

@@ -5,3 +5,5 @@ def call() {
     pip install h2o-3/h2o-py/dist/*.whl
   """
 }
+
+return this

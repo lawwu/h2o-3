@@ -10,3 +10,5 @@ def call(customEnv = [], timeoutValue = 1, timeoutUnit = 'HOURS', block) {
     }
   }
 }
+
+return this

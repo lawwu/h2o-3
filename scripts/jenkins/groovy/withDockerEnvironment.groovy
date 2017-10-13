@@ -1,4 +1,7 @@
 def call(customEnv = [], timeoutValue = 1, timeoutUnit = 'HOURS', block) {
+
+  def withDefaultEnvironment = load('jenkins-scripts/scripts/jenkins/groovy/withDefaultEnvironment.groovy')
+
   def registry = 'docker.h2o.ai'
   def image = "${registry}/opsh2oai/h2o-3-runtime:latest"
   withCredentials([usernamePassword(credentialsId: registry, usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWORD')]) {
@@ -14,3 +17,5 @@ def call(customEnv = [], timeoutValue = 1, timeoutUnit = 'HOURS', block) {
     }
   }
 }
+
+return this
