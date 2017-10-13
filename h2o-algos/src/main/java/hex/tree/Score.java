@@ -20,16 +20,27 @@ public class Score extends MRTask<Score> {
   ModelMetrics.MetricBuilder _mb;
 //  GainsLift.GainsLiftBuilder _gainsLiftBuilder;
   final boolean _computeGainsLift;
+  final int _startTree;         // For incremental scoring (on a validation dataset), -1 indicates full scoring
 
   /** Compute ModelMetrics on the testing dataset.
    *  It expect already adapted validation dataset which is adapted to a model
    *  and contains a response which is adapted to confusion matrix domain.
    */
-  public Score(SharedTree bldr, boolean is_train, boolean oob, Key<Vec> kresp, ModelCategory mcat, boolean computeGainsLift) { _bldr = bldr; _is_train = is_train; _oob = oob; _kresp = kresp; _mcat = mcat; _computeGainsLift = computeGainsLift; }
+  public Score(SharedTree bldr, boolean is_train, boolean oob, Key<Vec> kresp, ModelCategory mcat, boolean computeGainsLift) {
+    this(bldr, is_train, -1, oob, kresp, mcat, computeGainsLift);
+  }
+
+  public Score(SharedTree bldr, int startTree, boolean oob, Key<Vec> kresp, ModelCategory mcat, boolean computeGainsLift) {
+    this(bldr, false, startTree, oob, kresp, mcat, computeGainsLift);
+  }
+
+  private Score(SharedTree bldr, boolean is_train, int startTree, boolean oob, Key<Vec> kresp, ModelCategory mcat, boolean computeGainsLift) {
+    _bldr = bldr; _is_train = is_train; _startTree = startTree; _oob = oob; _kresp = kresp; _mcat = mcat; _computeGainsLift = computeGainsLift;
+  }
 
   @Override public void map( Chunk chks[] ) {
     Chunk ys = _bldr.chk_resp(chks);  // Response
-    Model m = _bldr._model;
+    SharedTreeModel m = _bldr._model;
     Chunk weightsChunk = m._output.hasWeights() ? chks[m._output.weightsIdx()] : null;
     Chunk offsetChunk = m._output.hasOffset() ? chks[m._output.offsetIdx()] : null;
     final int nclass = _bldr.nclasses();
@@ -59,6 +70,8 @@ public class Score extends MRTask<Score> {
       double offset = offsetChunk!=null?offsetChunk.atd(row):0;
       if( _is_train ) // Passed in the model-specific columns
         _bldr.score2(chks, weight, offset, cdists, row); // Use the training data directly (per-row predictions already made)
+      else if(_startTree >= 0)
+        m.score0Incremental(chks, offset, row, tmp, cdists, _startTree); // Incremental scoring (only use new trees)
       else            // Must score "the hard way"
         m.score0(chks, offset, row, tmp, cdists);
 
@@ -73,7 +86,12 @@ public class Score extends MRTask<Score> {
     }
   }
 
-  @Override public void reduce( Score t ) {
+  @Override
+  protected boolean modifiesVolatileVecs() {
+    return _startTree >= 0;
+  }
+
+  @Override public void reduce(Score t ) {
     _mb.reduce(t._mb);
   }
 

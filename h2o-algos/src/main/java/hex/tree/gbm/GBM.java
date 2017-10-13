@@ -148,6 +148,18 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
   private class GBMDriver extends Driver {
     private transient FrameMap frameMap;
 
+    @Override
+    protected Frame makeValidWorkspace() {
+      /*
+         Note: for CV this is wasting a lot of memory. This can really only be used for an experiment!
+       */
+      Vec[] tmp = _valid.anyVec().makeVolatileDoubles(_nclass > 1 ? _nclass : 1); // FIXME: size of workspace should be determined somewhere else
+      String[] tmpNames = new String[tmp.length];
+      for (int i = 0; i < tmpNames.length; i++)
+        tmpNames[i] = "__P_" + i;
+      return new Frame(tmpNames, tmp);
+    }
+
     @Override protected boolean doOOBScoring() { return false; }
     @Override protected void initializeModelSpecifics() {
       frameMap = new FrameMap(GBM.this);
